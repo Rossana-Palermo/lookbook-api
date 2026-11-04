@@ -57,26 +57,33 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
   if (!name || !user_id) {
     return res.status(400).json({ error: 'name and user_id are required' });
   }
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.execute(
+    await connection.beginTransaction();
+    const [result] = await connection.execute(
       'INSERT INTO products (name, user_id) VALUES (?, ?)',
       [name, user_id]
     );
     const productId = result.insertId;
     for (const file of req.files) {
-      await pool.execute(
+      await connection.execute(
         'INSERT INTO product_photos (product_id, file_path) VALUES (?, ?)',
         [productId, `/uploads/${file.filename}`]
       );
     }
+    await connection.commit();
+
     const product = { id: productId, name, user_id: Number(user_id) };
     product.photos = await getPhotos(productId);
     res.status(201).json(product);
   } catch (error) {
+    await connection.rollback();
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
       return res.status(400).json({ error: 'User does not exist' });
     }
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    connection.release();
   }
 });
 
@@ -86,26 +93,34 @@ router.put('/:id', upload.array('photos', 10), async (req, res) => {
   if (!name) {
     return res.status(400).json({ error: 'name is required' });
   }
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.execute(
+    await connection.beginTransaction();
+    const [result] = await connection.execute(
       'UPDATE products SET name = ? WHERE id = ?',
       [name, req.params.id]
     );
     if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: 'Product not found' });
     }
     for (const file of req.files) {
-      await pool.execute(
+      await connection.execute(
         'INSERT INTO product_photos (product_id, file_path) VALUES (?, ?)',
         [req.params.id, `/uploads/${file.filename}`]
       );
     }
+    await connection.commit();
+
     const [rows] = await pool.execute('SELECT * FROM products WHERE id = ?', [req.params.id]);
     const product = rows[0];
     product.photos = await getPhotos(product.id);
     res.status(200).json(product);
   } catch (error) {
+    await connection.rollback();
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    connection.release();
   }
 });
 
