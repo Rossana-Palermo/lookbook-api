@@ -23,12 +23,24 @@ async function getPhotos(productId) {
   return photos;
 }
 
-// GET /products - list all products with their photos
+// GET /products - list all products with their photos (2 queries in total)
 router.get('/', async (req, res) => {
   try {
     const [products] = await pool.execute('SELECT * FROM products');
+    const [photos] = await pool.execute(
+      'SELECT id, product_id, file_path FROM product_photos'
+    );
+
+    const photosByProduct = {};
+    for (const photo of photos) {
+      if (!photosByProduct[photo.product_id]) {
+        photosByProduct[photo.product_id] = [];
+      }
+      photosByProduct[photo.product_id].push({ id: photo.id, file_path: photo.file_path });
+    }
+
     for (const product of products) {
-      product.photos = await getPhotos(product.id);
+      product.photos = photosByProduct[product.id] || [];
     }
     res.status(200).json(products);
   } catch (error) {

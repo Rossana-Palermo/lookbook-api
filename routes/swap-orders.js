@@ -3,20 +3,60 @@ const pool = require('../db');
 
 const router = express.Router();
 
-async function getOrderDetails(order) {
+// Adds products and users to a list of orders using only 2 queries in total
+async function attachDetails(orders) {
+  if (orders.length === 0) {
+    return [];
+  }
+  const orderIds = orders.map((order) => order.id);
+  const placeholders = orderIds.map(() => '?').join(', ');
+
   const [products] = await pool.execute(
-    `SELECT p.id, p.name FROM products p
-     JOIN swap_order_products sop ON sop.product_id = p.id
-     WHERE sop.swap_order_id = ?`,
-    [order.id]
+    `SELECT sop.swap_order_id, p.id, p.name
+     FROM swap_order_products sop
+     JOIN products p ON p.id = sop.product_id
+     WHERE sop.swap_order_id IN (${placeholders})`,
+    orderIds
   );
   const [users] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.email FROM users u
-     JOIN swap_order_users sou ON sou.user_id = u.id
-     WHERE sou.swap_order_id = ?`,
-    [order.id]
+    `SELECT sou.swap_order_id, u.id, u.first_name, u.last_name, u.email
+     FROM swap_order_users sou
+     JOIN users u ON u.id = sou.user_id
+     WHERE sou.swap_order_id IN (${placeholders})`,
+    orderIds
   );
-  return { ...order, products, users };
+
+  const productsByOrder = {};
+  for (const row of products) {
+    if (!productsByOrder[row.swap_order_id]) {
+      productsByOrder[row.swap_order_id] = [];
+    }
+    productsByOrder[row.swap_order_id].push({ id: row.id, name: row.name });
+  }
+
+  const usersByOrder = {};
+  for (const row of users) {
+    if (!usersByOrder[row.swap_order_id]) {
+      usersByOrder[row.swap_order_id] = [];
+    }
+    usersByOrder[row.swap_order_id].push({
+      id: row.id,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      email: row.email,
+    });
+  }
+
+  return orders.map((order) => ({
+    ...order,
+    products: productsByOrder[order.id] || [],
+    users: usersByOrder[order.id] || [],
+  }));
+}
+
+async function getOrderDetails(order) {
+  const [detailedOrder] = await attachDetails([order]);
+  return detailedOrder;
 }
 
 async function saveLinks(connection, orderId, productIds, userIds) {
@@ -77,11 +117,7 @@ router.get('/', async (req, res) => {
 
   try {
     const [orders] = await pool.execute(sql, params);
-    const result = [];
-    for (const order of orders) {
-      result.push(await getOrderDetails(order));
-    }
-    res.status(200).json(result);
+    res.status(200).json(await attachDetails(orders));
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }
