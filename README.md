@@ -24,7 +24,14 @@ npm install
 
 2. Start MySQL and import the database structure from `migrations.sql` (for example with phpMyAdmin).
 
-3. Check the database settings in `db.js` (default: user `root`, empty password, database `lookbook`).
+3. Create a file named `.env` in the project root. Copy the content of `.env.example` and set your database settings:
+
+```
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=lookbook
+```
 
 4. Create an empty folder named `uploads` in the project root. Product photos are saved there.
 
@@ -35,6 +42,16 @@ node index.js
 ```
 
 The API is available at `http://localhost:3000`.
+
+## Project structure
+
+```
+index.js          Express app and server start
+db.js             MySQL connection pool (settings read from .env)
+routes/           Route declarations only
+controllers/      Request handling and business logic
+migrations.sql    Database structure
+```
 
 ## Endpoints
 
@@ -79,6 +96,9 @@ Filters on the list endpoint:
 - `/swap-orders?date=YYYY-MM-DD` shows the orders created on that date
 - `/swap-orders?product_id=1` shows the orders that contain that product
 
-## Security
+## Security and reliability
 
-All database queries use prepared statements to prevent SQL injection.
+- All database queries use prepared statements to prevent SQL injection.
+- Database credentials are read from environment variables, not written in the code.
+- Creating or updating products and swap orders uses transactions, so data is never saved halfway.
+- Lists are loaded with a fixed number of queries, avoiding the N+1 problem.
